@@ -108,10 +108,6 @@ export function MainScan({ onScanComplete, isOffline, setIsOffline }: MainScanPr
           }
         } catch (err) {
           setError(err instanceof Error ? err.message : 'Terjadi kesalahan saat memproses audio');
-          
-          // Fallback ke mock data jika API gagal
-          const mockData = generateMockDiagnosisData(selectedMode);
-          onScanComplete(mockData);
         } finally {
           setIsProcessing(false);
         }
@@ -131,7 +127,7 @@ export function MainScan({ onScanComplete, isOffline, setIsOffline }: MainScanPr
       // Update progress bar
       const progressInterval = setInterval(() => {
         currentStep++;
-        const progress = (currentStep / steps) * 100;
+        const progress = Math.min(100, Math.round((currentStep / steps) * 100));
         setRecordingProgress(progress);
 
         if (progress >= 100) {
@@ -162,53 +158,42 @@ export function MainScan({ onScanComplete, isOffline, setIsOffline }: MainScanPr
   const generateMockDiagnosisData = (mode: ScanMode): DiagnosisData => {
     return {
       timestamp: new Date().toISOString(),
-      mode: mode,
-      overallHealth: mode === 'quick' ? 78 : 72,
-      issues: mode === 'quick' 
+      mode,
+      overallHealth: mode === 'quick' ? 62 : 38,
+      detectedClass: mode === 'quick' ? 'low_oil' : 'worn_out_brakes',
+      confidence: mode === 'quick' ? 0.62 : 0.38,
+      classProbabilities: {},
+      issues: mode === 'quick'
         ? [
             {
-              id: '1',
+              id: 'low_oil',
               severity: 'medium',
-              component: 'Bearing Motor',
-              description: 'Terdeteksi getaran abnormal pada frekuensi 120 Hz',
-              recommendation: 'Lakukan inspeksi visual dan pelumasan dalam 7 hari'
+              component: 'Pelumasan',
+              description: 'Indikasi oli rendah atau sudah aus (data contoh)',
+              recommendation: 'Cek level oli dan tambah atau ganti oli mesin'
             }
           ]
         : [
             {
-              id: '1',
+              id: 'worn_out_brakes',
               severity: 'high',
-              component: 'Bearing Motor',
-              description: 'Terdeteksi getaran abnormal pada frekuensi 120 Hz dengan amplitudo tinggi',
-              recommendation: 'Segera lakukan penggantian bearing dalam 48 jam'
-            },
-            {
-              id: '2',
-              severity: 'medium',
-              component: 'Belt Transmisi',
-              description: 'Ketegangan belt tidak merata, terdeteksi dari pola getaran',
-              recommendation: 'Sesuaikan ketegangan belt pada maintenance berikutnya'
-            },
-            {
-              id: '3',
-              severity: 'low',
-              component: 'Mounting Base',
-              description: 'Sedikit getaran resonansi pada mounting',
-              recommendation: 'Monitor secara berkala, belum perlu tindakan'
+              component: 'Sistem Rem',
+              description: 'Terdeteksi suara kampas rem aus (data contoh)',
+              recommendation: 'Segera periksa dan ganti kampas rem'
             }
           ],
       vibrationData: generateMockVibrationData(mode)
     };
   };
 
-  const generateMockVibrationData = (mode: ScanMode) => {
-    const dataPoints = mode === 'quick' ? 100 : 300;
-    return Array.from({ length: dataPoints }, (_, i) => ({
-      time: i * 0.01,
-      amplitude: Math.sin(i * 0.1) * 2 + Math.random() * 0.5 + (i > 50 ? Math.sin(i * 0.05) * 1.5 : 0),
-      frequency: 60 + Math.sin(i * 0.05) * 60
-    }));
-  };
+    const generateMockVibrationData = (mode: ScanMode) => {
+      const dataPoints = mode === 'quick' ? 100 : 300;
+      return Array.from({ length: dataPoints }, (_, i) => ({
+        time: i * 0.05,
+        amplitude: Math.abs(Math.sin(i * 0.1)) * 0.2 + Math.random() * 0.05,
+        frequency: 50 + Math.sin(i * 0.05) * 40,
+      }));
+    };
 
   return (
     <div className="min-h-screen bg-black p-6">

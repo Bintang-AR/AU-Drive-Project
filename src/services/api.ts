@@ -25,8 +25,6 @@ export async function analyzeAudio(
   mode: ScanMode
 ): Promise<DiagnosisData> {
   const formData = new FormData();
-
-  // ⬇️ penting: backend FastAPI terima UploadFile
   formData.append("file", audioBlob, "recording.webm");
   formData.append("mode", mode);
 
@@ -36,7 +34,7 @@ export async function analyzeAudio(
   });
 
   if (!res.ok) {
-    throw new Error("Gagal menganalisis audio");
+    throw new Error(`Gagal menganalisis audio (status ${res.status})`);
   }
 
   const data = await res.json();
@@ -44,9 +42,12 @@ export async function analyzeAudio(
   return {
     timestamp: data.timestamp,
     mode: data.mode,
-    overallHealth: data.overallHealth,
-    issues: data.issues,
-    vibrationData: data.vibrationData,
+    overallHealth: data.overallHealth ?? null,
+    detectedClass: data.detectedClass ?? "uncertain",
+    confidence: data.confidence ?? 0,
+    classProbabilities: data.classProbabilities ?? {},
+    issues: Array.isArray(data.issues) ? data.issues : [],
+    vibrationData: Array.isArray(data.vibrationData) ? data.vibrationData : [],
   };
 }
 

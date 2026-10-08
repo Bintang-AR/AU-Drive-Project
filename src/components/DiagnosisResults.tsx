@@ -26,19 +26,10 @@ export function DiagnosisResults({
   /* ===============================
      SAFETY NORMALIZATION
   =============================== */
-  const detectedClass =
-    typeof data.detectedClass === 'string'
-      ? data.detectedClass
-      : 'normal';
-
-  const issues = Array.isArray(data.issues)
-    ? data.issues
-    : [];
-
-  const overallHealth =
-    typeof data.overallHealth === 'number'
-      ? data.overallHealth
-      : 0;
+  const detectedClass = data.detectedClass || 'uncertain';
+  const issues = Array.isArray(data.issues) ? data.issues : [];
+  const overallHealth = typeof data.overallHealth === 'number' ? data.overallHealth : null;
+  const confidencePct = Math.round((data.confidence ?? 0) * 100);
 
   /* ===============================
      UI HELPERS
@@ -82,7 +73,10 @@ export function DiagnosisResults({
     }
   };
 
-  const getHealthStatus = (health: number) => {
+  const getHealthStatus = (health: number | null) => {
+    if (health === null) {
+      return { label: 'Tidak Dapat Dinilai', color: 'text-gray-400', bgColor: 'bg-gray-500' };
+    }
     if (health >= 80) {
       return { label: 'Baik', color: 'text-green-500', bgColor: 'bg-green-500' };
     }
@@ -128,21 +122,20 @@ export function DiagnosisResults({
 
               <p className="text-sm text-red-400 font-semibold mt-2">
                 Deteksi Suara:{' '}
-                <span className="uppercase">
-                  {detectedClass.replace(/_/g, ' ')}
-                </span>
+                <span className="uppercase">{detectedClass.replace(/_/g, ' ')}</span>
+                {' '}({confidencePct}%)
               </p>
             </div>
 
             <div className={`text-4xl ${healthStatus.color}`}>
-              {overallHealth}%
+              {overallHealth === null ? '—' : `${overallHealth}%`}
             </div>
           </div>
 
           <div className="w-full bg-gray-700 rounded-full h-3">
             <div
               className={`${healthStatus.bgColor} h-full rounded-full transition-all`}
-              style={{ width: `${overallHealth}%` }}
+              style={{ width: `${overallHealth ?? 0}%` }}
             />
           </div>
         </div>
@@ -173,6 +166,12 @@ export function DiagnosisResults({
                 </div>
               </div>
             ))}
+          </div>
+        )}
+        
+        {issues.length === 0 && overallHealth !== null && (
+          <div className="bg-gray-800 border-2 border-green-500 rounded-xl p-5 mb-6">
+            <p className="text-green-400">Tidak ada masalah terdeteksi pada suara mesin.</p>
           </div>
         )}
 

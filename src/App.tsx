@@ -8,7 +8,10 @@ export type ScanMode = 'quick' | 'deep';
 export interface DiagnosisData {
   timestamp: string;
   mode: ScanMode;
-  overallHealth: number;
+  overallHealth: number | null;        // null = tidak bisa dinilai (uncertain / not an engine)
+  detectedClass: string;               // label dari backend, mis. "low_oil"
+  confidence: number;                  // 0-1
+  classProbabilities: Record<string, number>;
   issues: Array<{
     id: string;
     severity: 'low' | 'medium' | 'high';

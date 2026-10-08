@@ -1,7 +1,7 @@
 from fastapi import FastAPI, UploadFile, File, Form
 from fastapi.middleware.cors import CORSMiddleware
 from datetime import datetime
-
+from audio.convert import webm_to_wav
 from services.inference import run_inference
 from utils.vibration import generate_vibration_data
 
@@ -23,39 +23,55 @@ async def health_check():
     }
 
 # ===============================
+# KELAS (sesuai label_map.joblib)
+# ===============================
+NORMAL_CLASSES = {"normal_engine_idle", "normal_brakes"}
+NOT_ENGINE_CLASS = "not an engine"
+
+# Rata-rata probabilitas minimum agar hasil dianggap valid.
+# Nilai awal, sesuaikan setelah diuji dengan rekaman nyata.
+VALID_CONFIDENCE_THRESHOLD = 0.50
+
+# ===============================
 # ISSUE MAPPING
 # ===============================
 ISSUE_MAP = {
-    "misfire": {
-        "severity": "high",
-        "component": "Sistem Pembakaran",
-        "description": "Terjadi misfire pada mesin",
-        "recommendation": "Periksa busi, injector, dan sistem bahan bakar"
-    },
-    "buka_suara_mesin": {
+    "bad_ignition": {
         "severity": "medium",
-        "component": "Celah Mesin",
-        "description": "Suara mesin terbuka tidak normal",
-        "recommendation": "Periksa celah katup dan mounting mesin"
+        "component": "Sistem Pengapian",
+        "description": "Suara mengindikasikan sistem pengapian tidak optimal",
+        "recommendation": "Periksa busi, koil, dan kabel pengapian"
     },
-    "oli_rendah": {
+    "dead_battery": {
+        "severity": "medium",
+        "component": "Aki / Sistem Kelistrikan",
+        "description": "Suara mengindikasikan aki lemah atau tekor",
+        "recommendation": "Cek tegangan aki dan kondisi alternator, ganti aki bila perlu"
+    },
+    "low_oil": {
         "severity": "medium",
         "component": "Pelumasan",
-        "description": "Indikasi oli rendah atau aus",
-        "recommendation": "Cek dan tambah oli mesin"
+        "description": "Indikasi oli rendah atau sudah aus",
+        "recommendation": "Cek level oli dan tambah atau ganti oli mesin"
     },
-    "knocking": {
-        "severity": "high",
-        "component": "Ruang Bakar",
-        "description": "Knocking terdeteksi",
-        "recommendation": "Gunakan BBM oktan lebih tinggi dan cek timing pengapian"
-    },
-    "pengapian_buruk": {
+    "power_steering": {
         "severity": "medium",
-        "component": "Pengapian",
-        "description": "Sistem pengapian tidak optimal",
-        "recommendation": "Periksa koil dan busi"
-    }
+        "component": "Power Steering",
+        "description": "Terdeteksi suara abnormal pada sistem power steering",
+        "recommendation": "Periksa level dan kondisi minyak power steering serta selangnya"
+    },
+    "serpentine_belt": {
+        "severity": "medium",
+        "component": "Belt Serpentine",
+        "description": "Terdeteksi suara abnormal pada belt serpentine",
+        "recommendation": "Periksa ketegangan dan keausan belt, ganti bila retak atau aus"
+    },
+    "worn_out_brakes": {
+        "severity": "high",
+        "component": "Sistem Rem",
+        "description": "Terdeteksi suara yang mengindikasikan kampas rem aus",
+        "recommendation": "Segera periksa dan ganti kampas rem demi keselamatan"
+    },
 }
 
 @app.post("/api/analyze")
@@ -68,8 +84,10 @@ async def analyze_audio(
     # ===============================
     # SAFE INFERENCE
     # ===============================
+    wav_bytes = None
     try:
-        label, confidence, probabilities = run_inference(audio_bytes)
+        wav_bytes = webm_to_wav(audio_bytes)
+        label, confidence, probabilities = run_inference(wav_bytes)
     except Exception as e:
         print("❌ Inference error:", e)
         label = "unknown"
@@ -77,33 +95,53 @@ async def analyze_audio(
         probabilities = {}
 
     # ===============================
-    # VALIDATION (INI KUNCI FIX)
+    # VALIDATION
     # ===============================
-    VALID_CONFIDENCE_THRESHOLD = 0.60
-
     issues = []
 
-    if (
-        label in ISSUE_MAP
-        and confidence >= VALID_CONFIDENCE_THRESHOLD
-    ):
+    if label == "unknown" or confidence < VALID_CONFIDENCE_THRESHOLD:
+        # Hasil tidak meyakinkan: jangan dipaksa jadi "normal"
+        label = "uncertain"
+        issues.append({
+            "id": "uncertain",
+            "severity": "low",
+            "component": "Hasil Analisis",
+            "description": "Hasil analisis kurang meyakinkan",
+            "recommendation": "Ulangi rekaman di area lebih tenang dengan mikrofon lebih dekat ke mesin"
+        })
+    elif label == NOT_ENGINE_CLASS:
+        issues.append({
+            "id": "not_an_engine",
+            "severity": "low",
+            "component": "Rekaman Audio",
+            "description": "Suara yang direkam tidak terdeteksi sebagai suara mesin",
+            "recommendation": "Dekatkan mikrofon ke mesin yang sedang menyala lalu ulangi rekaman"
+        })
+    elif label in ISSUE_MAP:
         issue = ISSUE_MAP[label].copy()
         issue["id"] = label
         issues.append(issue)
-    else:
-        label = "normal"
+    # label di NORMAL_CLASSES: tidak ada issue
 
     # ===============================
     # HEALTH LOGIC
     # ===============================
-    if label == "normal":
-        overall_health = int(90 + confidence * 10)   # 90–100
-    else:
+    if label in NORMAL_CLASSES:
+        overall_health = int(90 + confidence * 10)            # 90-100
+    elif label in ISSUE_MAP:
         overall_health = max(30, int((1 - confidence) * 100))
+    else:
+        # uncertain / not an engine: skor kesehatan tidak bisa dihitung
+        overall_health = None
 
-    vibration_data = generate_vibration_data(
-        100 if mode == "quick" else 300
-    )
+        try:
+            vibration_data = (
+                generate_vibration_data(wav_bytes, 100 if mode == "quick" else 300)
+                if wav_bytes else []
+            )
+        except Exception as e:
+            print("❌ Vibration error:", e)
+            vibration_data = []
 
     response = {
         "overallHealth": overall_health,
@@ -117,7 +155,7 @@ async def analyze_audio(
     }
 
     # ===============================
-    # DEBUG LOG (PENTING)
+    # DEBUG LOG
     # ===============================
     print("=== ANALYSIS RESULT ===")
     print("Label       :", label)

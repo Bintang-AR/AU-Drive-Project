@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { ArrowLeft, ZoomIn, ZoomOut, Maximize2, Play, Pause } from 'lucide-react';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Area, AreaChart } from 'recharts';
 import { DiagnosisData } from '../App';
@@ -9,35 +9,70 @@ interface SpectrogramViewerProps {
 }
 
 export function SpectrogramViewer({ data, onBack }: SpectrogramViewerProps) {
+  const total = data.vibrationData.length;
+
   const [zoomLevel, setZoomLevel] = useState(1);
-  const [selectedTimeRange, setSelectedTimeRange] = useState<[number, number]>([0, data.vibrationData.length - 1]);
+  const [startIndex, setStartIndex] = useState(0);
   const [isPlaying, setIsPlaying] = useState(false);
   const [viewMode, setViewMode] = useState<'amplitude' | 'frequency' | 'both'>('both');
 
-  const handleZoomIn = () => {
-    setZoomLevel((prev) => Math.min(prev + 0.5, 5));
-  };
+  const pointsToShow = Math.max(1, Math.floor(total / zoomLevel));
+  const maxStart = Math.max(0, total - pointsToShow);
 
-  const handleZoomOut = () => {
-    setZoomLevel((prev) => Math.max(prev - 0.5, 1));
-  };
-
+  const handleZoomIn = () => setZoomLevel((prev) => Math.min(prev + 0.5, 5));
+  const handleZoomOut = () => setZoomLevel((prev) => Math.max(prev - 0.5, 1));
   const handleResetZoom = () => {
     setZoomLevel(1);
-    setSelectedTimeRange([0, data.vibrationData.length - 1]);
+    setStartIndex(0);
+    setIsPlaying(false);
   };
 
-  const getVisibleData = () => {
-    const totalPoints = data.vibrationData.length;
-    const pointsToShow = Math.floor(totalPoints / zoomLevel);
-    const start = selectedTimeRange[0];
-    const end = Math.min(start + pointsToShow, totalPoints);
-    return data.vibrationData.slice(start, end);
-  };
+  // Jaga startIndex tetap valid saat zoom berubah
+  useEffect(() => {
+    setStartIndex((s) => Math.min(s, maxStart));
+  }, [maxStart]);
 
-  const visibleData = getVisibleData();
+  // Putar: geser jendela ke kanan, berhenti di akhir
+  useEffect(() => {
+    if (!isPlaying) return;
+    const timer = setInterval(() => {
+      setStartIndex((s) => {
+        if (s >= maxStart) {
+          setIsPlaying(false);
+          return s;
+        }
+        return s + 1;
+      });
+    }, 50);
+    return () => clearInterval(timer);
+  }, [isPlaying, maxStart]);
+
+  const visibleData = data.vibrationData.slice(startIndex, startIndex + pointsToShow);
+
+  const duration = total > 0 ? data.vibrationData[total - 1].time : 0;
+  const pointsPerSecond = duration > 0 ? Math.round(total / duration) : 0;
+
+  const avgAmplitude = visibleData.length
+    ? visibleData.reduce((sum, d) => sum + d.amplitude, 0) / visibleData.length
+    : 0;
+  const peakPoint = visibleData.reduce(
+    (best, d) => (d.amplitude > best.amplitude ? d : best),
+    visibleData[0] ?? { time: 0, amplitude: 0, frequency: 0 }
+  );
+
+  if (total === 0) {
+    return (
+      <div className="min-h-screen bg-black text-white p-6">
+        <button onClick={onBack} className="p-2 hover:bg-gray-800 rounded-lg">
+          <ArrowLeft className="w-6 h-6" />
+        </button>
+        <p className="text-gray-400 mt-6">Data getaran tidak tersedia untuk rekaman ini.</p>
+      </div>
+    );
+  }
 
   return (
+    // JSX tetap sama kecuali bagian di bawah
     <div className="min-h-screen bg-black text-white p-6">
       <div className="max-w-7xl mx-auto">
         {/* Header */}
@@ -219,9 +254,9 @@ export function SpectrogramViewer({ data, onBack }: SpectrogramViewerProps) {
           
           {/* Timeline Info */}
           <div className="flex items-center justify-between mt-4 text-sm text-gray-400">
-            <span>Durasi Total: {data.vibrationData[data.vibrationData.length - 1].time.toFixed(2)}s</span>
-            <span>Data Points: {data.vibrationData.length}</span>
-            <span>Sampling Rate: ~100 Hz</span>
+            <span>Durasi Total: {duration.toFixed(2)}s</span>
+            <span>Data Points: {total}</span>
+            <span>Resolusi: ~{pointsPerSecond} titik/detik</span>
           </div>
         </div>
 
@@ -229,23 +264,17 @@ export function SpectrogramViewer({ data, onBack }: SpectrogramViewerProps) {
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mt-6">
           <div className="bg-gray-800 rounded-xl p-6 backdrop-blur-sm">
             <p className="text-gray-400 text-sm mb-2">Amplitudo Rata-rata</p>
-            <p className="text-white text-2xl">
-              {(visibleData.reduce((sum, d) => sum + d.amplitude, 0) / visibleData.length).toFixed(2)}
-            </p>
+            <p className="text-white text-2xl">{avgAmplitude.toFixed(3)}</p>
           </div>
           
-          <div className="bg-gray-800 rounded-xl p-6 backdrop-blur-sm">
+           <div className="bg-gray-800 rounded-xl p-6 backdrop-blur-sm">
             <p className="text-gray-400 text-sm mb-2">Frekuensi Dominan</p>
-            <p className="text-white text-2xl">
-              {Math.max(...visibleData.map(d => d.frequency)).toFixed(0)} Hz
-            </p>
+            <p className="text-white text-2xl">{peakPoint.frequency.toFixed(0)} Hz</p>
           </div>
           
           <div className="bg-gray-800 rounded-xl p-6 backdrop-blur-sm">
             <p className="text-gray-400 text-sm mb-2">Amplitudo Puncak</p>
-            <p className="text-white text-2xl">
-              {Math.max(...visibleData.map(d => d.amplitude)).toFixed(2)}
-            </p>
+            <p className="text-white text-2xl">{peakPoint.amplitude.toFixed(3)}</p>
           </div>
         </div>
       </div>
